@@ -1,6 +1,6 @@
 import { usePage } from "@inertiajs/react";
 import axios from "axios";
-import { Eye, EyeOff } from "lucide-react";
+import { CheckSquare2, Eye, EyeOff, Square } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import "../../../css/font.css";
@@ -29,6 +29,8 @@ interface DisplaySettings {
     gurmukhiColor: string;
     punjabiColor: string;
     englishColor: string;
+    theme: string;
+    shabadView: boolean;
 }
 
 const GURMUKHI_FONT_OPTIONS: { label: string; className: string }[] = [
@@ -84,6 +86,43 @@ function ColorRow({ label, value, onChange }: ColorRowProps) {
     );
 }
 
+const baniThemes: any = {
+  parchment: {
+    wrapper: "bg-[#F5E9D8] text-center min-h-screen flex flex-col items-center justify-center px-6",
+    gurmukhi: "text-[#7A1E1E]",
+    punjabi: "text-[#2F2F2F]",
+    english: "text-[#5C4632]",
+  },
+
+  darkDivine: {
+    wrapper: "bg-gradient-to-b from-[#0B1A2B] to-[#142C46] text-center min-h-screen flex flex-col items-center justify-center px-6",
+    gurmukhi: "text-[#D4AF37]",
+    punjabi: "text-[#E5E7EB]",
+    english: "text-[#C9A94D]",
+  },
+
+  softPastel: {
+    wrapper: "bg-gradient-to-b from-[#F8EAEA] to-[#F2DCDC] text-center min-h-screen flex flex-col items-center justify-center px-6",
+    gurmukhi: "text-[#8B1E1E]",
+    punjabi: "text-[#374151]",
+    english: "text-[#6B7280]",
+  },
+
+  minimalClean: {
+    wrapper: "bg-[#FFFFFF] text-center min-h-screen flex flex-col items-center justify-center px-6",
+    gurmukhi: "text-[#7F1D1D] font-semibold",
+    punjabi: "text-[#111827]",
+    english: "text-[#6B7280]",
+  },
+};
+
+const baniThemeOptions = [
+  { label: "Parchment", value: "parchment" },
+  { label: "Dark Divine", value: "darkDivine" },
+  { label: "Soft Pastel", value: "softPastel" },
+  { label: "Minimal Clean", value: "minimalClean" },
+];
+
 export default function Sync() {
     const wsRef = useRef<WebSocket | null>(null);
     const wsConnecting = useRef<boolean>(false);
@@ -116,6 +155,8 @@ export default function Sync() {
         gurmukhiColor: "#000000",
         punjabiColor: "#000000",
         englishColor: "#000000",
+        theme: "parchment",
+        shabadView: false,
     });
 
     useEffect(() => {
@@ -190,6 +231,20 @@ export default function Sync() {
         english: activePankti?.english_translation ?? "",
     };
 
+    let showPanktis:any = [currentPankti];
+    if (settings.shabadView) {
+        showPanktis = panktis.map(pankti => {
+            return {
+                gurmukhi: pankti.gurmukhi
+                    .replaceAll(";", "")
+                    .replaceAll(",", "")
+                    .replaceAll(".", ""),
+                punjabi: pankti.punjabi_translation,
+                english: pankti.english_translation,
+            };
+        });
+    }
+
     const updateSetting = <K extends keyof DisplaySettings>(
         key: K,
         value: DisplaySettings[K]
@@ -209,12 +264,43 @@ export default function Sync() {
         });
     };
 
+    const baniTheme = baniThemes[settings.theme ?? 'parchment'];
+
     return (
         <div className="relative flex w-screen overflow-hidden" style={{background: 'none'}}>
             {/* Settings Panel — only rendered when showSettings prop is true */}
             {showSettings && (
                 <div className="fixed top-0 left-0 z-10 bg-white h-screen rounded-2xl border p-4 shadow-sm overflow-y-auto space-y-5 w-64">
                     <h3 className="text-lg font-semibold">Display Settings</h3>
+
+                    <div className="flex">
+                        <span className="text-sm font-medium flex-1">Shabad View</span>
+                        <div className="mr-2" onClick={() => updateSetting('shabadView', !settings.shabadView)}>
+                            {
+                                !settings.shabadView &&
+                                <Square />
+                            }
+                            {
+                                settings.shabadView &&
+                                <CheckSquare2 />
+                            }
+                        </div>
+                    </div>
+
+                    <div>
+                        <span className="text-sm font-medium">Theme</span>
+                        <select
+                            value={settings.theme}
+                            onChange={(e) => updateSetting("theme", e.target.value)}
+                            className="w-full rounded border px-2 py-1 text-sm"
+                        >
+                            {baniThemeOptions.map((opt) => (
+                                <option key={opt.value} value={opt.value}>
+                                    {opt.label}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
 
                     {/* Gurmukhi Font Type */}
                     <div className="space-y-1.5">
@@ -413,62 +499,63 @@ export default function Sync() {
             )}
 
             <div
-                className="flex flex-col items-center justify-center flex-1 overflow-hidden"
+                className={`flex flex-col items-center justify-center flex-1 overflow-hidden ${baniTheme.wrapper} `}
                 style={{
-                    backgroundColor: hexToRgba(settings.backgroundColor, settings.backgroundOpacity),
                     paddingLeft: `${settings.xPadding}px`,
                     paddingRight: `${settings.xPadding}px`,
                     paddingTop: `${settings.yPadding}px`,
                     paddingBottom: `${settings.yPadding}px`,
                 }}
             >
-                {/* Gurmukhi — can wrap but won't overflow */}
+                {showPanktis.map((showPankti: any) => (
+                   <div className="flex flex-col">
                 <div
-                    className={`${settings.gurmukhiFontClass} text-center w-full`}
+                    className={`${settings.gurmukhiFontClass} text-center w-full ${baniTheme.gurmukhi}`}
                     style={{
                         fontSize: `${settings.gurmukhiFontSize}px`,
+                        marginTop: `20px`,
                         marginBottom: `${settings.gapAfterGurmukhi}px`,
-                        color: settings.gurmukhiColor,
                         wordBreak: "break-word",
                     }}
                 >
-                    {currentPankti.gurmukhi}
+                    {showPankti.gurmukhi}
                 </div>
 
                 {/* Punjabi — single line with ellipsis */}
                 {settings.showPunjabi && (
                     <div
-                        className="gurmukhi-open-gurbani-akhar-black w-full"
+                        className={`gurmukhi-open-gurbani-akhar-black w-full ${baniTheme.punjabi}`}
                         style={{
                             fontSize: `${settings.punjabiFontSize}px`,
                             marginBottom: `${settings.gapAfterPunjabi}px`,
-                            color: settings.punjabiColor,
                             whiteSpace: "nowrap",
                             overflow: "hidden",
                             textOverflow: "ellipsis",
                             textAlign: "center",
                         }}
                     >
-                        {currentPankti.punjabi}
+                        {showPankti.punjabi}
                     </div>
                 )}
 
                 {/* English — single line with ellipsis */}
                 {settings.showEnglish && (
                     <div
-                        className="w-full"
+                        className={`w-full ${baniTheme.english}`}
                         style={{
                             fontSize: `${settings.englishFontSize}px`,
-                            color: settings.englishColor,
                             whiteSpace: "nowrap",
                             overflow: "hidden",
                             textOverflow: "ellipsis",
                             textAlign: "center",
                         }}
                     >
-                        {currentPankti.english}
+                        {showPankti.english}
                     </div>
                 )}
+                </div>
+                 
+                ))}
             </div>
         </div>
     );
