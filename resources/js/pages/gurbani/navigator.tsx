@@ -5,7 +5,7 @@ import { Head, usePage } from '@inertiajs/react';
 import axios from 'axios';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import "../../../css/font.css";
-import { BookOpen, Check, Home, Mic, MicOff, Search } from 'lucide-react';
+import { BookOpen, Check, FastForward, Home, Mic, MicOff, Search, Settings } from 'lucide-react';
 
 interface SpeechToken {
   final_token: string;
@@ -72,11 +72,32 @@ export default function GurbaniNavigator() {
   const [isMinimized, setIsMinimized] = useState(false);
   const { apiToken, appId, wssServer } = usePage().props;
   const [search, setSearch] = useState("");
-  const [searchPanktis, setSearchPanktis] = useState([]);
-  const [lineIds, setLineIds] = useState([]);
+  const [searchPanktis, setSearchPanktis] = useState<SearchPankti[]>([]);
+  const [lineIds, setLineIds] = useState<string[]>([]);
+  const [selectedSearchIndex, setSelectedSearchIndex] = useState(0);
   const [visited, setVisited] = useState<number[]>([]);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const searchResultRefs = useRef<Array<HTMLDivElement | null>>([]);
   const audioQueueRef = useRef<Uint8Array[]>([]);
   const processingRef = useRef(false);
+
+  const [fontSize, setFontSize] = useState<number>(() => {
+    const saved = localStorage.getItem("gurmukhi-font-size");
+    return saved ? Number(saved) : 80;
+  });
+
+  const [panelHeight, setPanelHeight] = useState<number>(() => {
+    const saved = localStorage.getItem("navigator-panel-height");
+    return saved ? Number(saved) : 40;
+  });
+
+  useEffect(() => {
+    localStorage.setItem("navigator-panel-height", String(panelHeight));
+  }, [panelHeight]);
+
+  useEffect(() => {
+    localStorage.setItem("gurmukhi-font-size", String(fontSize));
+  }, [fontSize]);
 
   // =========================
   // AUDIO (RAW PCM 8kHz i16)
@@ -84,7 +105,6 @@ export default function GurbaniNavigator() {
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const nextPlayTimeRef = useRef(0);
-  const queueRef = useRef<Float32Array[]>([]);
 
   // Init AudioContext (must match backend sample rate)
   useEffect(() => {
@@ -95,6 +115,14 @@ export default function GurbaniNavigator() {
       ctx.close();
     };
   }, []);
+
+  const TARGET_LATENCY = 0.06;
+  const MAX_LATENCY = 0.20;
+  const MAX_QUEUE_FRAMES = 4;
+
+  const [audioLagMs, setAudioLagMs] = useState(0);
+  const lastLagUpdateRef = useRef(0);
+  const smoothedLagRef = useRef(0);
 
   // Decode i16 PCM → Float32
   function decodePCM16(buffer: ArrayBuffer) {
@@ -129,9 +157,31 @@ export default function GurbaniNavigator() {
         source.connect(audioCtx.destination);
 
         const now = audioCtx.currentTime;
+        const lagMs = Math.max(0, (nextPlayTimeRef.current - now) * 1000);
+        const nowMs = performance.now();
+
+        // smooth the value
+        smoothedLagRef.current =
+          smoothedLagRef.current * 0.85 + lagMs * 0.15;
+
+        // update UI only 4 times/sec
+        if (nowMs - lastLagUpdateRef.current > 250) {
+          lastLagUpdateRef.current = nowMs;
+          setAudioLagMs(Math.round(smoothedLagRef.current));
+        }
+
+        const queuedLatency = nextPlayTimeRef.current - now;
+
+        if (queuedLatency > MAX_LATENCY) {
+          nextPlayTimeRef.current = now + TARGET_LATENCY;
+
+          while (queue.length > 2) {
+            queue.shift(); // skip old packets
+          }
+        }
 
         if (nextPlayTimeRef.current < now) {
-          nextPlayTimeRef.current = now + 0.05;
+          nextPlayTimeRef.current = now + TARGET_LATENCY;
         }
 
         source.start(nextPlayTimeRef.current);
@@ -141,6 +191,31 @@ export default function GurbaniNavigator() {
     } finally {
       processingRef.current = false;
     }
+  };
+
+  const jumpToLive = () => {
+    const audioCtx = audioCtxRef.current;
+
+    if (!audioCtx) return;
+
+    audioQueueRef.current = [];
+    nextPlayTimeRef.current = audioCtx.currentTime + TARGET_LATENCY;
+  };
+
+  const toggleAudio = async () => {
+    const audioCtx = audioCtxRef.current;
+
+    if (!audioCtx) return;
+
+    if (audioCtx.state === "running") {
+      await audioCtx.suspend();
+      return;
+    }
+
+    audioQueueRef.current = [];
+    nextPlayTimeRef.current = 0;
+    await audioCtx.resume();
+    nextPlayTimeRef.current = audioCtx.currentTime + TARGET_LATENCY;
   };
 
   useEffect(() => {
@@ -154,6 +229,10 @@ export default function GurbaniNavigator() {
         // ------------------------
         if (event.data instanceof Blob) {
           event.data.arrayBuffer().then((buf) => {
+            while (audioQueueRef.current.length >= MAX_QUEUE_FRAMES) {
+              audioQueueRef.current.shift(); // drop old audio
+            }
+
             audioQueueRef.current.push(new Uint8Array(buf));
             processAudioQueue(); // trigger async processor
           });
@@ -211,6 +290,25 @@ export default function GurbaniNavigator() {
     }).then(res => setSearchPanktis(res.data));
   }, [lineIds, setSearchPanktis])
 
+  useEffect(() => {
+    setSelectedSearchIndex(0);
+    searchResultRefs.current = searchResultRefs.current.slice(0, searchPanktis.length);
+  }, [searchPanktis]);
+
+  useEffect(() => {
+    if (page === 'search' && !isMinimized) {
+      searchInputRef.current?.focus();
+    }
+  }, [page, isMinimized]);
+
+  useEffect(() => {
+    if (page !== 'search') return;
+
+    searchResultRefs.current[selectedSearchIndex]?.scrollIntoView({
+      block: 'nearest',
+    });
+  }, [page, selectedSearchIndex]);
+
   const syncCurrentPankti = useCallback((idx: number) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
       return;
@@ -261,6 +359,7 @@ export default function GurbaniNavigator() {
   const syncPage = useCallback((navPage: string) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(
+
       JSON.stringify({
           type: 'page',
           p: navPage
@@ -275,6 +374,115 @@ export default function GurbaniNavigator() {
       }
     }
   }, [page]);
+
+  const goToPankti = useCallback((idx: number) => {
+    if (idx < 0 || idx >= panktis.length) return;
+    syncCurrentPankti(idx);
+  }, [panktis.length, syncCurrentPankti]);
+
+  const goToNextUnvisited = useCallback(() => {
+    const next = panktis.findIndex((_, index) =>
+      index !== shabadState.home && !visited.includes(index)
+    );
+
+    if (next !== -1) {
+      syncCurrentPankti(next);
+    }
+  }, [panktis, shabadState.home, visited, syncCurrentPankti]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+
+      if ((e.ctrlKey || e.metaKey) && e.key === '/') {
+        e.preventDefault();
+        setIsMinimized(false);
+        syncPage('search');
+        window.setTimeout(() => searchInputRef.current?.focus(), 0);
+        return;
+      }
+
+      if (page === 'search') {
+        if (searchPanktis.length === 0) return;
+
+        const moveSelectedSearchIndex = (direction: 1 | -1) => {
+          setSelectedSearchIndex(current => {
+            const next = current + direction;
+            return Math.min(Math.max(next, 0), searchPanktis.length - 1);
+          });
+        };
+
+        if (['ArrowDown', 'ArrowRight'].includes(e.key)) {
+          e.preventDefault();
+          moveSelectedSearchIndex(1);
+          return;
+        }
+
+        if (['ArrowUp', 'ArrowLeft'].includes(e.key)) {
+          e.preventDefault();
+          moveSelectedSearchIndex(-1);
+          return;
+        }
+
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          const selectedPankti = searchPanktis[selectedSearchIndex];
+
+          if (selectedPankti) {
+            syncSearchPankti(selectedPankti.id);
+          }
+          return;
+        }
+      }
+
+      if (page !== 'shabad') return;
+
+      if (
+        target?.tagName === 'INPUT' ||
+        target?.tagName === 'TEXTAREA' ||
+        target?.isContentEditable
+      ) {
+        return;
+      }
+
+      if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        goToPankti(shabadState.current + 1);
+      }
+
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        goToPankti(shabadState.current - 1);
+      }
+
+      if (e.key === ' ') {
+        e.preventDefault();
+
+        if (shabadState.current === shabadState.home) {
+          goToNextUnvisited();
+        } else {
+          syncCurrentPankti(shabadState.home);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [
+    page,
+    searchPanktis,
+    selectedSearchIndex,
+    shabadState.current,
+    shabadState.home,
+    goToPankti,
+    goToNextUnvisited,
+    syncCurrentPankti,
+    syncSearchPankti,
+    syncPage,
+  ]);
 
   useEffect(() => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -296,7 +504,10 @@ export default function GurbaniNavigator() {
       {currentPankti &&
           <div className='row mt-8 p-4 text-center'>
             <div className='col-12 shabad-text'
-              style={{letterSpacing: '-1px', fontSize: '80px'}}
+              style={{
+                letterSpacing: '-1px',
+                fontSize: `${fontSize}px`
+              }}
             >
               {renderGurbani(currentPankti.gurmukhi)}
             </div>
@@ -306,22 +517,47 @@ export default function GurbaniNavigator() {
         </div>
       }
 
-      <div
-        className={`fixed right-2 bottom-2 w-[40%] rounded-xl bg-gray-50 text-gray-800 transition-all duration-300 border ${
-          isMinimized ? "h-[52px]" : "h-[40%]"
-        } flex flex-col overflow-hidden`}
+     <div
+        className={`fixed bottom-2 left-16 right-2 lg:left-auto lg:right-2 lg:w-[40%] rounded-xl bg-gray-50 text-gray-800 transition-all duration-300 border flex flex-col overflow-hidden ${
+          isMinimized ? "h-[52px]" : ""
+        }`}
+        style={!isMinimized ? { height: `${panelHeight}%` } : undefined}
       >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-gray-300 px-4 py-2 flex-none">
-          {audioCtxRef.current?.state !== "running" ? (
-            <button onClick={() => audioCtxRef.current?.resume()}>
-              <MicOff />
+          <div className='flex flex-row'>
+            <button onClick={toggleAudio}>
+              {audioCtxRef.current?.state !== "running" ? (
+                <MicOff />
+              ) : (
+                <Mic />
+              )}
             </button>
-          ) : (
-            <button onClick={() => audioCtxRef.current?.suspend()}>
-              <Mic />
-            </button>
-          )}
+            <div className="w-16 ml-2 mt-2">
+              <div className="relative h-2 w-full rounded bg-gray-200 overflow-hidden">
+                <div
+                  className={`absolute left-0 top-0 h-full transition-all duration-200 ${
+                    audioLagMs < 120
+                      ? "bg-green-500"
+                      : audioLagMs < 300
+                      ? "bg-yellow-500"
+                      : "bg-red-500"
+                  }`}
+                  style={{
+                    width: `${Math.min(100, (audioLagMs / 500) * 100)}%`,
+                  }}
+                />
+              </div>
+            </div>
+            {audioLagMs > 50 && (
+              <button
+                onClick={jumpToLive}
+                className="text-gray-600 hover:text-gray-900 transition ml-2"
+              >
+                <FastForward size={16} />
+              </button>
+            )}
+          </div>
           <span className="text-sm font-semibold tracking-wide">
             {getLatestFinal(token.final_token + token.partial_token)}
           </span>
@@ -345,7 +581,7 @@ export default function GurbaniNavigator() {
                     className={`shabad-text border-b border-gray-200 cursor-default font-normal px-2 py-2 ${
                       index === shabadState.current ? "bg-gray-200" : ""
                     }`}
-                    style={{ fontSize: "20px" }}
+                    style={{ fontSize: `${Math.max(fontSize * 0.25, 18)}px` }}
                   >
                     <div className="flex items-center gap-2">
 
@@ -382,6 +618,7 @@ export default function GurbaniNavigator() {
               <div className="flex-1 overflow-y-auto space-y-2">
                 <div className='m-2'>
                   <input
+                    ref={searchInputRef}
                     type="text"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
@@ -396,14 +633,61 @@ export default function GurbaniNavigator() {
                   {searchPanktis.map((searchPankti: SearchPankti, index) => (
                     <div
                       key={searchPankti.id}
+                      ref={(el) => { searchResultRefs.current[index] = el; }}
                       className={`gurmukhi border-b border-gray-200 cursor-default font-normal px-2 py-2 ${
                         index === 0 ? 'border-t' : ''
+                      } ${
+                        index === selectedSearchIndex ? 'bg-gray-200' : ''
                       }`}
                       onClick={() => syncSearchPankti(searchPankti.id)}
+                      onMouseEnter={() => setSelectedSearchIndex(index)}
                     >
                       {clearGurmukhi(searchPankti.gurmukhi)}
                     </div>
                   ))}
+                </div>
+              </div>
+            }
+
+            {
+              page === 'settings' &&
+              <div className="flex-1 overflow-y-auto p-4">
+                <div className="mb-4">
+                  <label className="block text-sm font-medium mb-2">
+                    Gurmukhi Font Size
+                  </label>
+
+                  <input
+                    type="range"
+                    min="40"
+                    max="140"
+                    value={fontSize}
+                    onChange={(e) => setFontSize(Number(e.target.value))}
+                    className="w-full"
+                  />
+
+                  <div className="mt-2 text-sm text-gray-600">
+                    {fontSize}px
+                  </div>
+                </div>
+
+                <div className="mb-4">
+                  <label className="block text-sm font-medium mb-2">
+                    Panel Height
+                  </label>
+
+                  <input
+                    type="range"
+                    min="20"
+                    max="90"
+                    value={panelHeight}
+                    onChange={(e) => setPanelHeight(Number(e.target.value))}
+                    className="w-full"
+                  />
+
+                  <div className="mt-2 text-sm text-gray-600">
+                    {panelHeight}%
+                  </div>
                 </div>
               </div>
             }
@@ -422,6 +706,15 @@ export default function GurbaniNavigator() {
                 onClick={() => syncPage('shabad')}
               >
                 <BookOpen className="h-5 w-5" />
+              </button>
+
+              <button
+                className={`flex flex-col items-center text-xs text-gray-600 px-4 py-2 hover:text-black ${
+                  page === 'settings' ? ' bg-gray-300 text-gray-800' : ''
+                }`}
+                onClick={() => syncPage('settings')}
+              >
+                <Settings className="h-5 w-5" />
               </button>
             </div>
 

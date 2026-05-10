@@ -96,9 +96,9 @@ const baniThemes: any = {
 
   darkDivine: {
     wrapper: "bg-gradient-to-b from-[#0B1A2B] to-[#142C46] text-center min-h-screen flex flex-col items-center justify-center px-6",
-    gurmukhi: "text-[#D4AF37]",
-    punjabi: "text-[#E5E7EB]",
-    english: "text-[#C9A94D]",
+    gurmukhi: "text-[#F4AF37]",
+    punjabi: "text-[#EAEAEA]",
+    english: "text-[#EAEAEA]",
   },
 
   softPastel: {
