@@ -98,6 +98,7 @@ async function validateToken(token) {
 
 const userSettings = new Map();
 const userPankti = new Map();
+const userNavigatorState = new Map();
 
 // ------------------------
 // WebSocket server
@@ -117,20 +118,6 @@ function heartbeat() {
     this.isAlive = true;
 }
 
-function handleAudio(ws, buffer) {
-    wss.clients.forEach((client) => {
-        if (
-            client !== ws &&
-            client.readyState === 1 &&
-            client.isAuthenticated &&
-            client.user?.id === ws.user?.id &&
-            client.appId !== ws.appId
-        ) {
-            client.send(buffer, { binary: true });
-        }
-    });
-}
-
 async function validateStream(streamName) {
     if (!streamName) return null;
 
@@ -145,14 +132,43 @@ async function validateStream(streamName) {
 }
 
 function broadcastPankti(sender, payload) {
-    userPankti.set(sender.user.id, payload);
+    const existing = userNavigatorState.get(sender.user.id) ?? getDefaultNavigatorState();
+
+    const current = payload.c ?? 0;
+    const incomingShabadId = payload.s;
+
+    const shabadChanged = existing.shabadId && existing.shabadId !== incomingShabadId;
+
+    const incomingVisited = Array.isArray(payload.visited)
+        ? payload.visited
+        : [];
+
+    const nextVisited = incomingVisited;
+
+    const nextState = {
+        ...existing,
+        page: "shabad",
+        shabadId: incomingShabadId,
+        current,
+        home: payload.h ?? 0,
+        baniId: payload.b ?? null,
+        visited: nextVisited,
+    };
+
+    userNavigatorState.set(sender.user.id, nextState);
+
+    userPankti.set(sender.user.id, {
+        ...payload,
+        visited: nextVisited,
+    });
 
     const message = JSON.stringify({
         type: "pankti",
-        s: payload.s,
-        c: payload.c ?? 0,
+        s: incomingShabadId,
+        c: current,
         h: payload.h ?? 0,
         b: payload.b ?? null,
+        visited: nextVisited,
     });
 
     // Private authenticated clients
@@ -194,6 +210,43 @@ function broadcastSettings(userId, settings) {
             client.send(message);
         }
     });
+}
+
+function relayToSameUserOtherApps(sender, payload) {
+    const message = JSON.stringify(payload);
+
+    wss.clients.forEach((client) => {
+        if (
+            client !== sender &&
+            client.readyState === 1 &&
+            client.isAuthenticated &&
+            client.user?.id === sender.user?.id &&
+            client.appId !== sender.appId
+        ) {
+            client.send(message);
+        }
+    });
+}
+
+function getDefaultNavigatorState() {
+    return {
+        page: "",
+        shabadId: "",
+        current: 0,
+        home: 0,
+        visited: [],
+    };
+}
+
+function sendNavigatorState(ws) {
+    const state = userNavigatorState.get(ws.user.id);
+
+    if (!state) return;
+
+    ws.send(JSON.stringify({
+        type: "navigator_state",
+        ...state,
+    }));
 }
 
 wssPublic.on("connection", async (ws, req) => {
@@ -256,6 +309,7 @@ wssPublic.on("connection", async (ws, req) => {
                             c: storedPankti.c ?? 0,
                             h: storedPankti.h ?? 0,
                             b: storedPankti.b ?? null,
+                            visited: storedPankti.visited ?? [],
                         }));
                     }
                     return;
@@ -344,8 +398,7 @@ wss.on("connection", async (ws, req) => {
                     return;
                 }
 
-                // msg is a Buffer (Opus frame)
-                handleAudio(ws, msg);
+                logger.warn(`Ignoring binary message from ${ws.user?.name}; audio must use WebRTC`);
                 return;
             }
 
@@ -401,6 +454,13 @@ wss.on("connection", async (ws, req) => {
                     return;
                 }
 
+                const existing = userNavigatorState.get(ws.user.id) ?? getDefaultNavigatorState();
+
+                userNavigatorState.set(ws.user.id, {
+                    ...existing,
+                    page: p,
+                });
+
                 wss.clients.forEach((client) => {
                     if (
                         client.readyState === 1 &&
@@ -419,16 +479,13 @@ wss.on("connection", async (ws, req) => {
             }
 
             if (data.type === "pankti") {
-                const { s, c, h, b } = data;
+                const { s, c, h, b, visited } = data;
 
-                // Validate structure
-                if (
-                    !s
-                ) {
+                if (!s) {
                     return;
                 }
 
-                broadcastPankti(ws, { s, c, h, b });
+                broadcastPankti(ws, { s, c, h, b, visited });
 
                 return;
             }
@@ -535,10 +592,62 @@ wss.on("connection", async (ws, req) => {
                 delete ws.meta.audio;
                 return;
             }
+
+            if (data.type === "webrtc_offer") {
+                if (!data.sdp || typeof data.sdp !== "string") {
+                    logger.warn(`Invalid WebRTC offer from ${ws.user.name}`);
+                    return;
+                }
+
+                logger.info(`Relaying WebRTC offer from ${ws.appId} for user ${ws.user.id}`);
+
+                relayToSameUserOtherApps(ws, {
+                    type: "webrtc_offer",
+                    sdp: data.sdp,
+                });
+
+                return;
+            }
+
+            if (data.type === "webrtc_answer") {
+                if (!data.sdp || typeof data.sdp !== "string") {
+                    logger.warn(`Invalid WebRTC answer from ${ws.user.name}`);
+                    return;
+                }
+
+                logger.info(`Relaying WebRTC answer from ${ws.appId} for user ${ws.user.id}`);
+
+                relayToSameUserOtherApps(ws, {
+                    type: "webrtc_answer",
+                    sdp: data.sdp,
+                });
+
+                return;
+            }
+
+            if (data.type === "webrtc_receiver_ready") {
+                logger.info(`Relaying WebRTC receiver ready from ${ws.appId} for user ${ws.user.id}`);
+
+                relayToSameUserOtherApps(ws, {
+                    type: "webrtc_receiver_ready",
+                });
+
+                return;
+            }
+
+            if (data.type === "get-navigator-state") {
+                logger.info(`Navigator state requested by ${ws.appId} for user ${ws.user.id}`);
+
+                sendNavigatorState(ws);
+
+                return;
+            }
         } catch (err) {
             logger.error(`Message error from ${ws.user?.name}: ${err}`);
         }
     });
+
+    ws.send(JSON.stringify({ type: "ready" }));
 
     ws.on("close", () => {
         logger.info(`User disconnected: ${ws.user?.name || "unknown"}`);
