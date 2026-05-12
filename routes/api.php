@@ -15,6 +15,41 @@ Route::middleware([LogVisits::class])->group(function () {
 });
 
 Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/turn-credentials', function () {
+        $secret = config('services.turn.secret');
+
+        $expiry = time() + 3600; // 1 hour
+
+        $username = (string) $expiry;
+
+        $credential = base64_encode(
+            hash_hmac('sha1', $username, $secret, true)
+        );
+
+        return response()->json([
+            'iceServers' => [
+                [
+                    'urls' => [
+                        'stun:stun.cloudflare.com:3478',
+                        'stun:stun.l.google.com:19302',
+                        'stun:global.stun.twilio.com:3478',
+                    ],
+                ],
+                [
+                    'urls' => [
+                        'turn:baniguru.com:3478?transport=udp',
+                        'turn:baniguru.com:3478?transport=tcp',
+                    ],
+                    'username' => $username,
+                    'credential' => $credential,
+                ],
+            ],
+            // "all" = allow STUN/direct + TURN fallback
+            // "relay" = force TURN only
+            'iceTransportPolicy' => 'all',
+        ]);
+    });
+
     Route::get('/user', function(Request $request) {
         $user = $request->user();
 

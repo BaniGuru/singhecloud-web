@@ -135,6 +135,17 @@ export default function GurbaniNavigator() {
     }
   };
 
+  async function getTurnIceServers() {
+    const res = await fetch("/api/turn-credentials", {
+      headers: {
+        Authorization: `Bearer ${apiToken}`,
+        Accept: "application/json",
+      },
+    });
+
+    return await res.json();
+  }
+
   const handleWebrtcOffer = useCallback(async (sdp: string) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
       return;
@@ -142,14 +153,17 @@ export default function GurbaniNavigator() {
 
     peerRef.current?.close();
 
-    const pc = new RTCPeerConnection({
-      iceServers: [
-        { urls: "stun:stun.l.google.com:19302" },
-        { urls: "stun:stun1.l.google.com:19302" },
-        { urls: "stun:stun2.l.google.com:19302" },
-        { urls: "stun:global.stun.twilio.com:3478" },
-      ],
-    });
+    const config = await getTurnIceServers();
+    const pc = new RTCPeerConnection(config);
+
+    pc.onicecandidate = (event) => {
+      if (event.candidate && wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({
+          type: "webrtc_ice_candidate",
+          candidate: event.candidate,
+        }));
+      }
+    };
 
     peerRef.current = pc;
     setWebrtcState("connecting");
@@ -174,14 +188,12 @@ export default function GurbaniNavigator() {
     pc.oniceconnectionstatechange = () => {
       setWebrtcState(pc.iceConnectionState);
 
-      if (
-        pc.iceConnectionState === "failed" ||
-        pc.iceConnectionState === "disconnected" ||
-        pc.iceConnectionState === "closed"
-      ) {
-        wsRef.current?.send(JSON.stringify({
-          type: "webrtc_receiver_ready",
-        }));
+      if (pc.iceConnectionState === "failed") {
+        window.setTimeout(() => {
+          wsRef.current?.send(JSON.stringify({
+            type: "webrtc_receiver_ready",
+          }));
+        }, 1500);
       }
     };
 
@@ -259,6 +271,13 @@ export default function GurbaniNavigator() {
 
       if (data.type === "webrtc_offer") {
         await handleWebrtcOffer(data.sdp);
+        return;
+      }
+
+      if (data.type === "webrtc_ice_candidate") {
+        if (peerRef.current && data.candidate) {
+          await peerRef.current.addIceCandidate(data.candidate);
+        }
         return;
       }
 

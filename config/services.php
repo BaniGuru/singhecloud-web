@@ -35,4 +35,7 @@ return [
         ],
     ],
 
+    'turn' => [
+        'secret' => env('TURN_SECRET'),
+    ]
 ];

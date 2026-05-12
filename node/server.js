@@ -635,6 +635,17 @@ wss.on("connection", async (ws, req) => {
                 return;
             }
 
+            if (data.type === "webrtc_ice_candidate") {
+                logger.info(`Relaying WebRTC ICE candidate from ${ws.appId} for user ${ws.user.id}`);
+
+                relayToSameUserOtherApps(ws, {
+                    type: "webrtc_ice_candidate",
+                    candidate: data.candidate,
+                });
+
+                return;
+            }
+
             if (data.type === "get-navigator-state") {
                 logger.info(`Navigator state requested by ${ws.appId} for user ${ws.user.id}`);
 
