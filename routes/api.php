@@ -12,6 +12,11 @@ Route::middleware([LogVisits::class])->group(function () {
     Route::get('/gurbani/search', [GurbaniApiController::class, 'search']);
     Route::get('/gurbani/shabad/{id}', [GurbaniApiController::class, 'shabad']);
     Route::get('/bani-stream/{name}', [BaniStreamController::class, 'validateName']);
+    Route::get('/health', function () {
+        return response()->json([
+            'status' => 'ok',
+        ]);
+    });
 });
 
 Route::middleware('auth:sanctum')->group(function () {

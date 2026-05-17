@@ -359,7 +359,7 @@ wss.on("connection", async (ws, req) => {
             return;
         }
 
-        logger.warn(`Invalid token from IP ${ip}`);
+        logger.warn(`Invalid token from IP ${ip} [app: ${app}]`);
         ws.close();
         return;
     }

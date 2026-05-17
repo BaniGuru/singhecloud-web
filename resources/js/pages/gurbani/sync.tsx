@@ -88,28 +88,28 @@ function ColorRow({ label, value, onChange }: ColorRowProps) {
 
 const baniThemes: any = {
   parchment: {
-    wrapper: "bg-[#F5E9D8] text-center min-h-screen flex flex-col items-center justify-center px-6",
+    wrapper: "bg-[#F5E9D8] text-center min-h-screen flex flex-col items-center justify-center",
     gurmukhi: "text-[#7A1E1E]",
     punjabi: "text-[#2F2F2F]",
     english: "text-[#5C4632]",
   },
 
   darkDivine: {
-    wrapper: "bg-gradient-to-b from-[#0B1A2B] to-[#142C46] text-center min-h-screen flex flex-col items-center justify-center px-6",
+    wrapper: "bg-gradient-to-b from-[#0B1A2B] to-[#142C46] text-center min-h-screen flex flex-col items-center justify-center",
     gurmukhi: "text-[#F4AF37]",
     punjabi: "text-[#EAEAEA]",
     english: "text-[#EAEAEA]",
   },
 
   softPastel: {
-    wrapper: "bg-gradient-to-b from-[#F8EAEA] to-[#F2DCDC] text-center min-h-screen flex flex-col items-center justify-center px-6",
+    wrapper: "bg-gradient-to-b from-[#F8EAEA] to-[#F2DCDC] text-center min-h-screen flex flex-col items-center justify-center",
     gurmukhi: "text-[#8B1E1E]",
     punjabi: "text-[#374151]",
     english: "text-[#6B7280]",
   },
 
   minimalClean: {
-    wrapper: "bg-[#FFFFFF] text-center min-h-screen flex flex-col items-center justify-center px-6",
+    wrapper: "bg-[#FFFFFF] text-center min-h-screen flex flex-col items-center justify-center",
     gurmukhi: "text-[#7F1D1D] font-semibold",
     punjabi: "text-[#111827]",
     english: "text-[#6B7280]",
@@ -122,6 +122,236 @@ const baniThemeOptions = [
   { label: "Soft Pastel", value: "softPastel" },
   { label: "Minimal Clean", value: "minimalClean" },
 ];
+
+const renderGurmukhi = (text: string) => {
+    return text.split(/(\s+)/).map((part, index) => {
+        const match = part.match(/^(.+?)([;,.])$/);
+
+        if (!match) {
+            return <span key={index}>{part}</span>;
+        }
+
+        const [, word, marker] = match;
+
+        const colorClass =
+            marker === ";"
+                ? "text-amber-500"
+                : "text-sky-500";
+
+        return (
+            <span key={index} className={colorClass}>
+                {word}
+            </span>
+        );
+    });
+};
+
+function AutoFitText({
+    text,
+    className,
+    baseFontSize,
+    minFontSize,
+}: {
+    text: string;
+    className: string;
+    baseFontSize: number;
+    minFontSize: number;
+}) {
+    const ref = useRef<HTMLDivElement | null>(null);
+    const [fontSize, setFontSize] = useState(baseFontSize);
+
+    useEffect(() => {
+        const el = ref.current;
+        if (!el) return;
+
+        let nextFontSize = baseFontSize;
+        el.style.fontSize = `${nextFontSize}px`;
+
+        requestAnimationFrame(() => {
+            const fits = () => {
+                const lineHeight = nextFontSize * 1.35;
+                return el.scrollHeight <= lineHeight * 2 + 2;
+            };
+
+            while (nextFontSize > minFontSize && !fits()) {
+                nextFontSize -= 1;
+                el.style.fontSize = `${nextFontSize}px`;
+            }
+
+            setFontSize(nextFontSize);
+        });
+    }, [text, baseFontSize, minFontSize]);
+
+    useEffect(() => {
+        const HARD_REFRESH_INTERVAL = 2 * 60 * 60 * 1000; // 2 hours
+
+        const safeHardRefresh = async () => {
+            try {
+                // verify backend is alive first
+                const response = await axios.get("/api/health", {
+                    timeout: 5000,
+                });
+
+                if (response.status === 200) {
+                    console.log("Site healthy. Performing hard refresh...");
+
+                    // cache-busting hard refresh
+                    const url = new URL(window.location.href);
+                    url.searchParams.set("_refresh", Date.now().toString());
+
+                    window.location.href = url.toString();
+                }
+            } catch (error) {
+                console.error(
+                    "Health check failed. Skipping hard refresh.",
+                    error
+                );
+            }
+        };
+
+        // start interval
+        const interval = setInterval(
+            safeHardRefresh,
+            HARD_REFRESH_INTERVAL
+        );
+
+        return () => clearInterval(interval);
+    }, []);
+
+    return (
+        <div
+            ref={ref}
+            className={`
+                ${className}
+                overflow-hidden
+                text-ellipsis
+                [display:-webkit-box]
+                [-webkit-line-clamp:2]
+                [-webkit-box-orient:vertical]
+            `}
+            style={{
+                fontSize: `${fontSize}px`,
+                lineHeight: 1.35,
+            }}
+        >
+            {text}
+        </div>
+    );
+};
+
+function GurmukhiText({
+    text,
+    className,
+    baseFontSize,
+}: {
+    text: string;
+    className: string;
+    baseFontSize: number;
+}) {
+    const visibleRef = useRef<HTMLDivElement | null>(null);
+    const measureRef = useRef<HTMLDivElement | null>(null);
+
+    const [fontSize, setFontSize] = useState(Math.max(baseFontSize, 60));
+    const [useVishraamSplit, setUseVishraamSplit] = useState(false);
+
+    const minFontSize = 70;
+    const lineHeightRatio = 1.4;
+    const maxLines = 2;
+
+    const splitOnVishraam = (value: string) => {
+        const index = value.indexOf(";");
+
+        if (index === -1) return null;
+
+        return [
+            value.slice(0, index + 1).trim(),
+            value.slice(index + 1).trim(),
+        ];
+    };
+
+    useEffect(() => {
+        const measureEl = measureRef.current;
+        const visibleEl = visibleRef.current;
+
+        if (!measureEl || !visibleEl) return;
+
+        const hasVishraam = text.includes(";");
+        const maxFontSize = Math.max(baseFontSize, minFontSize);
+
+        let nextFontSize = maxFontSize;
+
+        const fitsInTwoLines = () => {
+            measureEl.style.fontSize = `${nextFontSize}px`;
+            measureEl.style.lineHeight = `${nextFontSize * lineHeightRatio}px`;
+
+            const maxHeight = nextFontSize * lineHeightRatio * maxLines;
+
+            return measureEl.scrollHeight <= maxHeight + 2;
+        };
+
+        while (nextFontSize > minFontSize && !fitsInTwoLines()) {
+            nextFontSize -= 1;
+        }
+
+        setFontSize(Math.max(nextFontSize, minFontSize));
+        setUseVishraamSplit(hasVishraam);
+    }, [text, baseFontSize]);
+
+    const parts = useVishraamSplit ? splitOnVishraam(text) : null;
+
+    const content = parts ? (
+        <>
+            <div>{renderGurmukhi(parts[0])}</div>
+            <div>{renderGurmukhi(parts[1])}</div>
+        </>
+    ) : (
+        renderGurmukhi(text)
+    );
+
+    return (
+        <>
+            {/* Hidden measuring div */}
+            <div
+                ref={measureRef}
+                className={className}
+                aria-hidden="true"
+                style={{
+                    position: "absolute",
+                    visibility: "hidden",
+                    pointerEvents: "none",
+                    zIndex: -1,
+                    width: "95vw",
+                    maxWidth: "95vw",
+                    fontSize: `${Math.max(baseFontSize, minFontSize)}px`,
+                    lineHeight: `${Math.max(baseFontSize, minFontSize) * lineHeightRatio}px`,
+                    letterSpacing: "-1px",
+                    wordBreak: "break-word",
+                    overflowWrap: "anywhere",
+                    whiteSpace: "normal",
+                }}
+            >
+                {content}
+            </div>
+
+            {/* Actual visible text */}
+            <div
+                ref={visibleRef}
+                className={className}
+                style={{
+                    fontSize: `${fontSize}px`,
+                    lineHeight: lineHeightRatio,
+                    letterSpacing: "-1px",
+                    maxWidth: "95vw",
+                    wordBreak: "break-word",
+                    overflowWrap: "anywhere",
+                    overflow: "hidden",
+                }}
+            >
+                {content}
+            </div>
+        </>
+    );
+}
 
 export default function Sync() {
     const wsRef = useRef<WebSocket | null>(null);
@@ -223,10 +453,7 @@ export default function Sync() {
 
     const currentPankti = {
         gurmukhi:
-            activePankti?.gurmukhi
-                ?.replaceAll(";", "")
-                ?.replaceAll(",", "")
-                ?.replaceAll(".", "") ?? "",
+            activePankti?.gurmukhi ?? '',
         punjabi: activePankti?.punjabi_translation ?? "",
         english: activePankti?.english_translation ?? "",
     };
@@ -235,10 +462,7 @@ export default function Sync() {
     if (settings.shabadView) {
         showPanktis = panktis.map(pankti => {
             return {
-                gurmukhi: pankti.gurmukhi
-                    .replaceAll(";", "")
-                    .replaceAll(",", "")
-                    .replaceAll(".", ""),
+                gurmukhi: pankti.gurmukhi,
                 punjabi: pankti.punjabi_translation,
                 english: pankti.english_translation,
             };
@@ -267,7 +491,7 @@ export default function Sync() {
     const baniTheme = baniThemes[settings.theme ?? 'parchment'];
 
     return (
-        <div className="relative flex w-screen overflow-hidden" style={{background: 'none'}}>
+        <div className="relative flex w-full max-w-full overflow-x-hidden overflow-y-hidden h-screen" style={{background: 'none'}}>
             {/* Settings Panel — only rendered when showSettings prop is true */}
             {showSettings && (
                 <div className="fixed top-0 left-0 z-10 bg-white h-screen rounded-2xl border p-4 shadow-sm overflow-y-auto space-y-5 w-64">
@@ -499,7 +723,13 @@ export default function Sync() {
             )}
 
             <div
-                className={`flex flex-col items-center justify-center flex-1 overflow-hidden ${baniTheme.wrapper} `}
+                className={`
+                    flex flex-col items-center
+                    justify-start
+                    flex-1 min-w-0 max-w-full h-full overflow-hidden
+                    box-border
+                    ${baniTheme.wrapper}
+                `}
                 style={{
                     paddingLeft: `${settings.xPadding}px`,
                     paddingRight: `${settings.xPadding}px`,
@@ -508,50 +738,67 @@ export default function Sync() {
                 }}
             >
                 {showPanktis.map((showPankti: any) => (
-                   <div className="flex flex-col">
-                <div
-                    className={`${settings.gurmukhiFontClass} text-center w-full ${baniTheme.gurmukhi}`}
-                    style={{
-                        fontSize: `${settings.gurmukhiFontSize}px`,
-                        marginTop: `20px`,
-                        marginBottom: `${settings.gapAfterGurmukhi}px`,
-                        wordBreak: "break-word",
-                    }}
-                >
-                    {showPankti.gurmukhi}
-                </div>
+                <div className="flex flex-col">
+
+                <div style={{ marginBottom: `${settings.gapAfterGurmukhi}px` }}>
+                    <GurmukhiText
+                        text={showPankti.gurmukhi}
+                        baseFontSize={settings.gurmukhiFontSize}
+                        className={`
+                            ${settings.gurmukhiFontClass}
+                            ${baniTheme.gurmukhi}
+                            text-center
+                            w-full
+                            max-w-full
+                            min-w-0
+                            whitespace-normal
+                            break-words
+                            [overflow-wrap:anywhere]
+                            overflow-hidden
+                            mt-5
+                        `}
+                    />
+                </div>    
 
                 {/* Punjabi — single line with ellipsis */}
                 {settings.showPunjabi && (
-                    <div
-                        className={`gurmukhi-open-gurbani-akhar-black w-full ${baniTheme.punjabi}`}
-                        style={{
-                            fontSize: `${settings.punjabiFontSize}px`,
-                            marginBottom: `${settings.gapAfterPunjabi}px`,
-                            whiteSpace: "nowrap",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            textAlign: "center",
-                        }}
-                    >
-                        {showPankti.punjabi}
+                    <div style={{ marginBottom: `${settings.gapAfterPunjabi}px` }}>
+                        <AutoFitText
+                            text={showPankti.punjabi}
+                            baseFontSize={settings.punjabiFontSize}
+                            minFontSize={Math.max(settings.punjabiFontSize * 0.75, 16)}
+                            className={`
+                                gurmukhi-open-gurbani-akhar-black
+                                ${baniTheme.punjabi}
+                                w-full
+                                max-w-full
+                                min-w-0
+                                text-center
+                                whitespace-normal
+                                break-words
+                                [overflow-wrap:anywhere]
+                            `}
+                        />
                     </div>
                 )}
 
                 {/* English — single line with ellipsis */}
                 {settings.showEnglish && (
-                    <div
-                        className={`w-full ${baniTheme.english}`}
-                        style={{
-                            fontSize: `${settings.englishFontSize}px`,
-                            whiteSpace: "nowrap",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            textAlign: "center",
-                        }}
-                    >
-                        {showPankti.english}
-                    </div>
+                    <AutoFitText
+                        text={showPankti.english}
+                        baseFontSize={settings.englishFontSize}
+                        minFontSize={Math.max(settings.englishFontSize * 0.75, 14)}
+                        className={`
+                            ${baniTheme.english}
+                            w-full
+                            max-w-full
+                            min-w-0
+                            text-center
+                            whitespace-normal
+                            break-words
+                            [overflow-wrap:anywhere]
+                        `}
+                    />
                 )}
                 </div>
                  
