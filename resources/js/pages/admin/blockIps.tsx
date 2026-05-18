@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
-import AppLayout from '@/layouts/app-layout';
 import { Head } from '@inertiajs/react';
 import { Box, TextField, Button } from '@mui/material';
 import { DataGrid, GridColDef } from '@mui/x-data-grid';
+import AdminAppLayout from '@/layouts/admin-app-layout';
 
 type BlockedIp = { id: number; ip: string; note?: string };
 
@@ -13,7 +13,7 @@ export default function BlockedIpsPage() {
   const [note, setNote] = useState('');
 
   const fetchIps = async () => {
-    const { data } = await axios.get('/blocked-ips');
+    const { data } = await axios.get('/admin/api/blocked-ips');
     setRows(data);
   };
 
@@ -21,13 +21,13 @@ export default function BlockedIpsPage() {
 
   const addIp = async () => {
     if (!ip) return;
-    await axios.post('/blocked-ips', { ip, note });
+    await axios.post('/admin/api/blocked-ips', { ip, note });
     setIp(''); setNote('');
     fetchIps();
   };
 
   const deleteIp = async (id: number) => {
-    await axios.delete(`/blocked-ips/${id}`);
+    await axios.delete(`/admin/api/blocked-ips/${id}`);
     fetchIps();
   };
 
@@ -44,7 +44,7 @@ export default function BlockedIpsPage() {
   ];
 
   return (
-    <AppLayout>
+    <AdminAppLayout>
       <Head title="Blocked IPs" />
       <Box className="flex flex-col gap-4 p-4">
         <Box display="flex" gap={2}>
@@ -59,6 +59,6 @@ export default function BlockedIpsPage() {
           getRowId={(row) => row.id}
         />
       </Box>
-    </AppLayout>
+    </AdminAppLayout>
   );
 }

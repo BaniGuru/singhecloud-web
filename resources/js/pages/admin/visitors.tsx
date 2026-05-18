@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
 
-import AppLayout from '@/layouts/app-layout';
+import AdminAppLayout from '@/layouts/admin-app-layout';
 import { dashboard } from '@/routes';
 import { type BreadcrumbItem } from '@/types';
 import { Head } from '@inertiajs/react';
@@ -38,7 +38,7 @@ type Visitor = {
 };
 
 const breadcrumbs: BreadcrumbItem[] = [
-  { title: 'Dashboard', href: dashboard().url },
+  { title: 'Dashboard', href: '/admin/dashboard' },
   { title: 'Visitors', href: visitors().url },
 ];
 
@@ -72,7 +72,7 @@ export default function VisitorsPage() {
     try {
       const sort = sortModel[0] ?? { field: 'visited_at', sort: 'desc' };
 
-      const { data } = await axios.get('/visitors', {
+      const { data } = await axios.get('/admin/api/visitors', {
         params: {
           page: page + 1, // API is 1-based
           perPage: pageSize,
@@ -104,18 +104,18 @@ export default function VisitorsPage() {
     { field: 'id', headerName: 'ID', width: 80 },
     { field: 'visitor_id', headerName: 'Visitor ID', width: 140 },
     { field: 'ip', headerName: 'IP', width: 140 },
+    { field: 'url', headerName: 'URL', width: 400 },
+    { field: 'visited_at', headerName: 'Visited At', width: 250 },
     { field: 'browser', headerName: 'Browser', width: 120 },
     { field: 'platform', headerName: 'Platform', width: 120 },
     { field: 'device', headerName: 'Device', width: 110 },
     { field: 'country', headerName: 'Country', width: 110 },
     { field: 'city', headerName: 'City', width: 120 },
-    { field: 'useragent', headerName: 'User Agent', width: 260 },
-    { field: 'url', headerName: 'URL', width: 200 },
-    { field: 'visited_at', headerName: 'Visited At', width: 170 },
+    { field: 'useragent', headerName: 'User Agent', width: 460 },
   ];
 
   return (
-    <AppLayout breadcrumbs={breadcrumbs}>
+    <AdminAppLayout breadcrumbs={breadcrumbs}>
       <Head title="Visitors" />
 
       <Box className="flex flex-col gap-4 p-4">
@@ -211,6 +211,6 @@ export default function VisitorsPage() {
           autoHeight
         />
       </Box>
-    </AppLayout>
+    </AdminAppLayout>
   );
 }

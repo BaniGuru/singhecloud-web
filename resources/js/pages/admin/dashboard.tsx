@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import axios from 'axios';
 
-import { dashboard } from '@/routes';
+import { dashboard } from '@/routes/admin/index';
 import { type BreadcrumbItem } from '@/types';
 import { Head } from '@inertiajs/react';
 
@@ -45,7 +45,7 @@ export default function Dashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
 
   useEffect(() => {
-    axios.get<DashboardData>('/admin/dashboard/visitors').then((r) => {
+    axios.get<DashboardData>('/admin/api/dashboard-visitors').then((r) => {
       setData(r.data);
     });
   }, []);
@@ -123,10 +123,10 @@ function Card({ title, children }: any) {
 
 function PieBlock({
   title,
-  data,
+  data = [],
 }: {
   title: string;
-  data: { name: string; value: number }[];
+  data?: { name: string; value: number }[];
 }) {
   return (
     <Card title={title}>
@@ -144,7 +144,7 @@ function PieBlock({
   );
 }
 
-function WorldMap({ countries }: { countries: { country: string; value: number }[] }) {
+function WorldMap({ countries = [] }: { countries?: { country: string; value: number }[] }) {
   const svgRef = useRef<SVGSVGElement>(null);
 
   useEffect(() => {

@@ -231,6 +231,7 @@ function relayToSameUserOtherApps(sender, payload) {
 function getDefaultNavigatorState() {
     return {
         page: "",
+        baniId: "",
         shabadId: "",
         current: 0,
         home: 0,
@@ -481,7 +482,7 @@ wss.on("connection", async (ws, req) => {
             if (data.type === "pankti") {
                 const { s, c, h, b, visited } = data;
 
-                if (!s) {
+                if (!s && !b) {
                     return;
                 }
 

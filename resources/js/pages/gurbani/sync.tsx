@@ -183,7 +183,7 @@ function AutoFitText({
     }, [text, baseFontSize, minFontSize]);
 
     useEffect(() => {
-        const HARD_REFRESH_INTERVAL = 2 * 60 * 60 * 1000; // 2 hours
+        const HARD_REFRESH_INTERVAL = 10 * 60 * 1000; // 10 minutes
 
         const safeHardRefresh = async () => {
             try {
@@ -363,7 +363,9 @@ export default function Sync() {
         panktis: Pankti[];
         current: number | null;
         shabadId: string | null;
+        banidId: string | null;
     }>({
+        banidId: null,
         shabadId: null,
         panktis: [],
         current: null,
@@ -408,9 +410,15 @@ export default function Sync() {
                 switch (data.type) {
                     case "ready":
                         socket.send(JSON.stringify({ type: "get-settings" }));
-                    break;
+                        break;
+
                     case "pankti":
-                        setShabadState({ panktis: [], current: data?.c, shabadId: data?.s });
+                        setShabadState({
+                            panktis: [],
+                            current: data?.c,
+                            shabadId: data?.s,
+                            banidId: data?.b,
+                        });
                         break;
                     case "settings":
                         if (data.settings) setSettings(data.settings);
@@ -442,11 +450,19 @@ export default function Sync() {
     }, [wssServer, streamKeyName]);
 
     useEffect(() => {
-        if (!shabadState.shabadId) return;
+        if (!shabadState.shabadId || shabadState.banidId) return;
         axios.get(`/api/gurbani/shabad/${shabadState.shabadId}`).then((res) => {
             setPanktis(res.data.panktis);
         });
-    }, [shabadState.shabadId]);
+    }, [shabadState.shabadId, shabadState.banidId]);
+
+    useEffect(() => {
+        if (!shabadState.banidId) return;
+
+        axios.get(`/api/gurbani/bani/${shabadState.banidId}`).then((res) => {
+            setPanktis(res.data.panktis);
+        });
+    }, [shabadState.shabadId, shabadState.banidId]);
 
     const currentIndex = shabadState.current;
     const activePankti = currentIndex !== null ? panktis[currentIndex] : undefined;

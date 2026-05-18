@@ -22,7 +22,7 @@ Route::get('/search', [GurbaniController::class, 'search'])->name('search');
 Route::get('/shabad/{id}', [GurbaniController::class, 'shabad'])->name('shabad');
 Route::get('/sync/{keyName}', GurbaniSyncController::class);
 
-Route::middleware(['auth', 'role:user', 'verified'])->group(function() {
+Route::middleware(['auth', 'role:user|admin', 'verified'])->group(function() {
     Route::get('dashboard', function () {
         return Inertia::render('dashboard');
     })->name('dashboard');
@@ -47,9 +47,9 @@ Route::middleware(['auth', 'role:admin', 'verified'])
         return Inertia::render('admin/dashboard');
     })->name('dashboard');
 
-    Route::get('/dashboard/visitors', [DashboardVisitorController::class, 'index']);
+    Route::get('/api/dashboard-visitors', [DashboardVisitorController::class, 'index']);
     Route::get('/api/visitors', [VisitorController::class, 'index']);
-    Route::apiResource('blocked-ips', BlockedIpController::class);
+    Route::apiResource('api/blocked-ips', BlockedIpController::class);
 
     Route::get('/visitors', function () {
         return Inertia::render('admin/visitors');

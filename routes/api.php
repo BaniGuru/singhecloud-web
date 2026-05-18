@@ -11,6 +11,7 @@ Route::middleware([LogVisits::class])->group(function () {
     Route::get('/gurbani/angs/{ang}', [GurbaniApiController::class, 'getByAng']);
     Route::get('/gurbani/search', [GurbaniApiController::class, 'search']);
     Route::get('/gurbani/shabad/{id}', [GurbaniApiController::class, 'shabad']);
+    Route::get('/gurbani/bani/{id}', [GurbaniApiController::class, 'bani']);
     Route::get('/bani-stream/{name}', [BaniStreamController::class, 'validateName']);
     Route::get('/health', function () {
         return response()->json([
