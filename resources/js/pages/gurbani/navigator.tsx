@@ -233,115 +233,142 @@ export default function GurbaniNavigator() {
     );
   }, []);
 
+  async function getWsTicket() {
+    const res = await fetch("/ws-ticket", {
+      headers: {
+        Accept: "application/json",
+      },
+      credentials: "same-origin",
+    });
+
+    if (!res.ok) {
+      throw new Error("Failed to get WebSocket ticket");
+    }
+
+    return await res.json();
+  }
+
   useEffect(() => {
     if (wsRef.current) return;
 
-    // IMPORTANT:
-    // React appId must be different from Rust appId.
-    // Server relays only when client.appId !== ws.appId.
-    const receiverAppId =
-      appId === "gurbani-explorer" ? "gurbani-web-receiver" : appId;
+    let cancelled = false;
 
-    const socket = new WebSocket(
-      `${wssServer}?token=${apiToken}&appid=${receiverAppId}`
-    );
+    async function connect() {
 
-    socket.onopen = () => {
-      console.log("Connected to WSS server");
-    };
+      // IMPORTANT:
+      // React appId must be different from Rust appId.
+      // Server relays only when client.appId !== ws.appId.
+      const receiverAppId =
+        appId === "gurbani-explorer" ? "gurbani-web-receiver" : appId;
 
-    socket.onmessage = async (event) => {
-      if (event.data instanceof Blob) {
-        console.warn("Ignoring binary WebSocket audio. Audio now uses WebRTC.");
-        return;
-      }
+      const { ticket } = await getWsTicket();
 
-      const data = JSON.parse(event.data);
+      if (cancelled) return;
 
-      if (data.type === "ready") {
-        socket.send(JSON.stringify({
-          type: "get-navigator-state",
-        }));
+      const socket = new WebSocket(
+        `${wssServer}?ticket=${ticket}&appid=${receiverAppId}`
+      );
 
-        socket.send(JSON.stringify({
-          type: "webrtc_receiver_ready",
-        }));
-        return;
-      }
+      socket.onopen = () => {
+        console.log("Connected to WSS server");
+      };
 
-      if (data.type === "webrtc_offer") {
-        await handleWebrtcOffer(data.sdp);
-        return;
-      }
-
-      if (data.type === "webrtc_ice_candidate") {
-        if (peerRef.current && data.candidate) {
-          await peerRef.current.addIceCandidate(data.candidate);
+      socket.onmessage = async (event) => {
+        if (event.data instanceof Blob) {
+          console.warn("Ignoring binary WebSocket audio. Audio now uses WebRTC.");
+          return;
         }
-        return;
-      }
 
-      if (data.type === "token") {
-        setToken((token) => ({
-          final_token: token.final_token + data.t,
-          partial_token: data.pt,
-        }));
-      }  else if (data.type === "pankti") {
-        const nextShabadId = data.s ?? "";
-        const nextCurrent = data.c ?? 0;
+        const data = JSON.parse(event.data);
 
-        const nextVisited = Array.isArray(data.visited)
-          ? data.visited
-          : [];
+        if (data.type === "ready") {
+          socket.send(JSON.stringify({
+            type: "get-navigator-state",
+          }));
 
-        shabadIdRef.current = nextShabadId;
+          socket.send(JSON.stringify({
+            type: "webrtc_receiver_ready",
+          }));
+          return;
+        }
 
-        setVisited(nextVisited);
+        if (data.type === "webrtc_offer") {
+          await handleWebrtcOffer(data.sdp);
+          return;
+        }
 
-        setShabadState({
-          current: nextCurrent,
-          home: data.h ?? 0,
-          shabadId: nextShabadId,
-        });
+        if (data.type === "webrtc_ice_candidate") {
+          if (peerRef.current && data.candidate) {
+            await peerRef.current.addIceCandidate(data.candidate);
+          }
+          return;
+        }
 
-        setPage("shabad");
-      } else if (data.type === "search-p") {
-        setLineIds(data.p);
-      } else if (data.type === "page") {
-        setPage(data.p);
-      }
+        if (data.type === "token") {
+          setToken((token) => ({
+            final_token: token.final_token + data.t,
+            partial_token: data.pt,
+          }));
+        }  else if (data.type === "pankti") {
+          const nextShabadId = data.s ?? "";
+          const nextCurrent = data.c ?? 0;
 
-      if (data.type === "navigator_state") {
-        const nextShabadId = data.shabadId ?? "";
+          const nextVisited = Array.isArray(data.visited)
+            ? data.visited
+            : [];
 
-        shabadIdRef.current = nextShabadId;
+          shabadIdRef.current = nextShabadId;
 
-        setVisited(Array.isArray(data.visited) ? data.visited : []);
+          setVisited(nextVisited);
 
-        setShabadState({
-          current: data.current ?? 0,
-          home: data.home ?? 0,
-          shabadId: nextShabadId,
-        });
+          setShabadState({
+            current: nextCurrent,
+            home: data.h ?? 0,
+            shabadId: nextShabadId,
+          });
 
-        setPage(data.page ?? "");
+          setPage("shabad");
+        } else if (data.type === "search-p") {
+          setLineIds(data.p);
+        } else if (data.type === "page") {
+          setPage(data.p);
+        }
 
-        return;
-      }
-    };
+        if (data.type === "navigator_state") {
+          const nextShabadId = data.shabadId ?? "";
 
-    socket.onclose = () => {
-      console.log("Disconnected");
-      setWebrtcState("disconnected");
-    };
+          shabadIdRef.current = nextShabadId;
 
-    socket.onerror = (err) => {
-      console.error("WebSocket error:", err);
-    };
+          setVisited(Array.isArray(data.visited) ? data.visited : []);
 
-    wsRef.current = socket;
+          setShabadState({
+            current: data.current ?? 0,
+            home: data.home ?? 0,
+            shabadId: nextShabadId,
+          });
+
+          setPage(data.page ?? "");
+
+          return;
+        }
+      };
+
+      socket.onclose = () => {
+        console.log("Disconnected");
+        setWebrtcState("disconnected");
+      };
+
+      socket.onerror = (err) => {
+        console.error("WebSocket error:", err);
+      };
+
+      wsRef.current = socket;
+    }
+
+    connect();
 
     return () => {
+      cancelled = true;
       wsRef.current?.close();
       wsRef.current = null;
 
@@ -355,7 +382,7 @@ export default function GurbaniNavigator() {
       remoteStreamRef.current = null;
       setAudioEnabled(false);
     };
-  }, [appId, apiToken, wssServer, handleWebrtcOffer]);
+  }, [appId, wssServer, handleWebrtcOffer]);
 
   useEffect(() => {
     if (shabadState.shabadId === "") return;

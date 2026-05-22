@@ -96,6 +96,29 @@ async function validateToken(token) {
     }
 }
 
+async function validateWsTicket(ticket) {
+    if (!ticket) return null;
+
+    try {
+        const res = await fetch(`${appUrl}/api/ws-ticket/validate`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Accept: "application/json",
+                "X-Internal-Secret": process.env.WS_INTERNAL_SECRET,
+            },
+            body: JSON.stringify({ ticket }),
+        });
+
+        if (res.status !== 200) return null;
+
+        return await res.json();
+    } catch (err) {
+        logger.error(`WS ticket validation error: ${err}`);
+        return null;
+    }
+}
+
 const userSettings = new Map();
 const userPankti = new Map();
 const userNavigatorState = new Map();
@@ -338,9 +361,10 @@ wss.on("connection", async (ws, req) => {
     const ip = req.socket.remoteAddress;
     const url = new URL(req.url, `http://${req.headers.host}`);
     const token = url.searchParams.get("token");
+    const ticket = url.searchParams.get("ticket");
     const appId = url.searchParams.get("appid");
 
-    if (!token || !appId) {
+    if ((!token && !ticket) || !appId) {
         if (!recordFailure(ip)) {
             logger.warn(`IP ${ip} blocked due to too many invalid attempts`);
             ws.close();
@@ -352,7 +376,14 @@ wss.on("connection", async (ws, req) => {
         return;
     }
 
-    const user = await validateToken(token);
+    let user = null;
+
+    if (ticket) {
+        user = await validateWsTicket(ticket);
+    } else {
+        user = await validateToken(token);
+    }
+
     if (!user) {
         if (!recordFailure(ip)) {
             logger.warn(`IP ${ip} blocked due to too many invalid attempts`);
@@ -360,7 +391,7 @@ wss.on("connection", async (ws, req) => {
             return;
         }
 
-        logger.warn(`Invalid token from IP ${ip} [app: ${app}]`);
+        logger.warn(`Invalid token from IP ${ip} [app: ${appId}]`);
         ws.close();
         return;
     }

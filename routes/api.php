@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\BaniStreamController;
 use App\Http\Controllers\Api\GurbaniApiController;
 use App\Http\Controllers\Api\SpeechTokenController;
+use App\Http\Controllers\Auth\WSTicketController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Shetabit\Visitor\Middlewares\LogVisits;
@@ -18,6 +19,7 @@ Route::middleware([LogVisits::class])->group(function () {
             'status' => 'ok',
         ]);
     });
+    Route::post('/ws-ticket/validate', [WSTicketController::class, 'validate']);
 });
 
 Route::middleware('auth:sanctum')->group(function () {

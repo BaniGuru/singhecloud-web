@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\Admin\VisitorController;
 use App\Http\Controllers\Api\DashboardVisitorController;
 use App\Http\Controllers\Api\GurbaniApiController;
 use App\Http\Controllers\Api\SpeechTokenController;
+use App\Http\Controllers\Auth\WSTicketController;
 use App\Http\Controllers\Gurbani\GurbaniController;
 use App\Http\Controllers\GurbaniNavigatorController;
 use App\Http\Controllers\GurbaniSyncController;
@@ -32,6 +33,7 @@ Route::middleware(['auth', 'role:user|admin', 'verified'])->group(function() {
     Route::get('/speech/tokens', [SpeechTokenController::class, 'index'])->name('speech.tokens.list');
     Route::get('/shabads/{shabadId}', [GurbaniApiController::class, 'showShabad']);
     Route::post('/panktis', [GurbaniApiController::class, 'getPanktis']);
+    Route::get('/ws-ticket', [WSTicketController::class, 'generate']);
 });
 
 Route::middleware(['auth', 'role:admin', 'verified'])->group(function() {
