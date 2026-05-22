@@ -136,7 +136,7 @@ export default function GurbaniNavigator() {
   };
 
   async function getTurnIceServers() {
-    const res = await fetch("/api/turn-credentials", {
+    const res = await fetch("/turn-credentials", {
       headers: {
         Authorization: `Bearer ${apiToken}`,
         Accept: "application/json",
