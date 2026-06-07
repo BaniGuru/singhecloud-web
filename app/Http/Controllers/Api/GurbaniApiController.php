@@ -194,13 +194,13 @@ class GurbaniApiController
     {
         $validated = $request->validate([
             'lines' => 'required|array',
-            'lines.*' => 'string'
+            'lines.*' => 'string',
         ]);
 
-        if (empty($validated['lines'])) {
-            return response()->json([
-                'panktis' => [],
-            ]);
+        $lineIds = $validated['lines'];
+
+        if (empty($lineIds)) {
+            return response()->json([]);
         }
 
         $panktis = DB::table('lines as l')
@@ -208,11 +208,16 @@ class GurbaniApiController
                 $join->on('t.line_id', '=', 'l.id')
                     ->where('t.translation_source_id', 6);
             })
-            ->whereIn('l.id', $validated['lines'])
-            ->orderBy('l.order_id')
+            ->whereIn('l.id', $lineIds)
             ->select('l.id', 'l.gurmukhi', 't.translation', 'l.source_page')
-            ->get();
+            ->get()
+            ->keyBy('id');
 
-        return response()->json($panktis);
+        $ordered = collect($lineIds)
+            ->map(fn ($id) => $panktis->get($id))
+            ->filter()
+            ->values();
+
+        return response()->json($ordered);
     }
 }
