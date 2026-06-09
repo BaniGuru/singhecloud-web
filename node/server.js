@@ -259,6 +259,11 @@ function getDefaultNavigatorState() {
         current: 0,
         home: 0,
         visited: [],
+        speech: {
+            running: false,
+            paused: false,
+            command: "stop",
+        },
     };
 }
 
@@ -579,6 +584,49 @@ wss.on("connection", async (ws, req) => {
                         }))
                     }
                 });
+            }
+
+            if (data.type === "speech") {
+                const { command } = data;
+
+                const allowedCommands = ["start", "pause", "resume", "stop"];
+
+                if (!allowedCommands.includes(command)) {
+                    logger.warn(`Invalid speech command from ${ws.user.name}: ${command}`);
+                    return;
+                }
+
+                const existing = userNavigatorState.get(ws.user.id) ?? getDefaultNavigatorState();
+
+                const speech =
+                    command === "start"
+                        ? { running: true, paused: false, command }
+                        : command === "pause"
+                            ? { running: true, paused: true, command }
+                            : command === "resume"
+                                ? { running: true, paused: false, command }
+                                : { running: false, paused: false, command };
+
+                userNavigatorState.set(ws.user.id, {
+                    ...existing,
+                    speech,
+                });
+
+                wss.clients.forEach((client) => {
+                    if (
+                        client.readyState === 1 &&
+                        client.isAuthenticated &&
+                        client.user?.id === ws.user?.id &&
+                        client.appId !== ws.appId
+                    ) {
+                        client.send(JSON.stringify({
+                            type: "speech",
+                            command
+                        }));
+                    }
+                });
+
+                return;
             }
 
             // ------------------------

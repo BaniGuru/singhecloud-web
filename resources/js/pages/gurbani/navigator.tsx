@@ -5,7 +5,16 @@ import { Head, usePage } from '@inertiajs/react';
 import axios from 'axios';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import "../../../css/font.css";
-import { BookOpen, Check, Home, Mic, MicOff, Search, Settings } from 'lucide-react';
+import {
+  BookOpen,
+  Check,
+  Home,
+  PauseCircle,
+  PlayCircle,
+  Search,
+  Settings,
+  Square,
+} from 'lucide-react';
 
 interface SpeechToken {
   final_token: string;
@@ -39,7 +48,7 @@ function clearGurmukhi(gurmukhi: string) {
 
 const renderGurbani = (gurmukhi: string) => {
   return gurmukhi.split(" ").map((word, index) => {
-    let color = "#000000ff";
+    let color = "currentColor";
     let cleanWord = word;
 
     if (word.endsWith(";")) {
@@ -65,8 +74,10 @@ export default function GurbaniNavigator() {
   const audioElRef = useRef<HTMLAudioElement | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
 
-  const [audioEnabled, setAudioEnabled] = useState(false);
   const [webrtcState, setWebrtcState] = useState("idle");
+
+  const [speechRunning, setSpeechRunning] = useState(false);
+  const [speechPaused, setSpeechPaused] = useState(false);
 
   const [token, setToken] = useState<SpeechToken>({
     final_token: "",
@@ -78,7 +89,13 @@ export default function GurbaniNavigator() {
     current: number;
     home: number;
     shabadId: string;
-  }>({ current: 0, home: 0, shabadId: "" });
+    baniId: number | null;
+  }>({
+    current: 0,
+    home: 0,
+    shabadId: "",
+    baniId: null,
+  });
 
   const [panktis, setPanktis] = useState<Pankti[]>([]);
   const [isMinimized, setIsMinimized] = useState(false);
@@ -116,24 +133,6 @@ export default function GurbaniNavigator() {
   useEffect(() => {
     shabadIdRef.current = shabadState.shabadId;
   }, [shabadState.shabadId]);
-
-  const toggleAudio = async () => {
-    const audio = audioElRef.current;
-    if (!audio) return;
-
-    if (audio.paused) {
-      try {
-        await audio.play();
-        setAudioEnabled(true);
-      } catch (err) {
-        console.error("Audio play failed:", err);
-        setAudioEnabled(false);
-      }
-    } else {
-      audio.pause();
-      setAudioEnabled(false);
-    }
-  };
 
   async function getTurnIceServers() {
     const res = await fetch("/turn-credentials", {
@@ -177,10 +176,8 @@ export default function GurbaniNavigator() {
 
         try {
           await audioElRef.current.play();
-          setAudioEnabled(true);
         } catch (err) {
           console.warn("Autoplay blocked. User must click audio button.", err);
-          setAudioEnabled(false);
         }
       }
     };
@@ -325,6 +322,7 @@ export default function GurbaniNavigator() {
             current: nextCurrent,
             home: data.h ?? 0,
             shabadId: nextShabadId,
+            baniId: data.b ?? null,
           });
 
           setPage("shabad");
@@ -334,7 +332,38 @@ export default function GurbaniNavigator() {
           setPage(data.p);
         }
 
+        if (data.type === "speech") {
+          switch (data.command) {
+            case "start":
+              setSpeechRunning(true);
+              setSpeechPaused(false);
+              break;
+
+            case "pause":
+              setSpeechRunning(true);
+              setSpeechPaused(true);
+              break;
+
+            case "resume":
+              setSpeechRunning(true);
+              setSpeechPaused(false);
+              break;
+
+            case "stop":
+              setSpeechRunning(false);
+              setSpeechPaused(false);
+              break;
+          }
+
+          return;
+        }
+
         if (data.type === "navigator_state") {
+          if (data.speech) {
+            setSpeechRunning(Boolean(data.speech.running));
+            setSpeechPaused(Boolean(data.speech.paused));
+          }
+
           const nextShabadId = data.shabadId ?? "";
 
           shabadIdRef.current = nextShabadId;
@@ -345,6 +374,7 @@ export default function GurbaniNavigator() {
             current: data.current ?? 0,
             home: data.home ?? 0,
             shabadId: nextShabadId,
+            baniId: data.baniId ?? null,
           });
 
           setPage(data.page ?? "");
@@ -380,17 +410,24 @@ export default function GurbaniNavigator() {
       }
 
       remoteStreamRef.current = null;
-      setAudioEnabled(false);
     };
   }, [appId, wssServer, handleWebrtcOffer]);
 
   useEffect(() => {
+    if (shabadState.baniId !== null) {
+      axios.get(`/api/gurbani/bani/${shabadState.baniId}`).then((res) => {
+        setPanktis(res.data.panktis);
+      });
+
+      return;
+    }
+
     if (shabadState.shabadId === "") return;
 
     axios.get(`/shabads/${shabadState.shabadId}`).then((res) => {
       setPanktis(res.data.panktis);
     });
-  }, [shabadState.shabadId]);
+  }, [shabadState.shabadId, shabadState.baniId]);
 
   useEffect(() => {
     if (lineIds.length === 0) return;
@@ -426,17 +463,22 @@ export default function GurbaniNavigator() {
     (idx: number) => {
       if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
 
+      let adjustIdx = 0;
+      if (shabadState.baniId === 13 && shabadState.current > 7) {
+          adjustIdx = 1;
+      }
+  
       wsRef.current.send(
         JSON.stringify({
           type: "pankti",
           s: shabadState.shabadId,
-          c: idx,
+          c: (idx - adjustIdx),
           h: shabadState.home,
-          b: null,
+          b: shabadState.baniId,
         })
       );
     },
-    [shabadState.shabadId, shabadState.home]
+    [shabadState.shabadId, shabadState.home, shabadState.baniId]
   );
 
   const syncSearchPankti = useCallback((id: string) => {
@@ -460,13 +502,13 @@ export default function GurbaniNavigator() {
           s: shabadState.shabadId,
           c: shabadState.current,
           h: home,
-          b: null,
+          b: shabadState.baniId,
         })
       );
 
       setShabadState((state) => ({ ...state, home }));
     },
-    [shabadState.current, shabadState.shabadId]
+    [shabadState.current, shabadState.shabadId, shabadState.baniId]
   );
 
   const syncPage = useCallback(
@@ -508,6 +550,35 @@ export default function GurbaniNavigator() {
       syncCurrentPankti(next);
     }
   }, [panktis, shabadState.home, visited, syncCurrentPankti]);
+
+  const sendSpeechCommand = useCallback((command: "start" | "pause" | "resume" | "stop") => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+
+    wsRef.current.send(
+      JSON.stringify({
+        type: "speech",
+        command,
+      })
+    );
+
+    if (command === "start") {
+      setSpeechRunning(true);
+      setSpeechPaused(false);
+    }
+
+    if (command === "pause") {
+      setSpeechPaused(true);
+    }
+
+    if (command === "resume") {
+      setSpeechPaused(false);
+    }
+
+    if (command === "stop") {
+      setSpeechRunning(false);
+      setSpeechPaused(false);
+    }
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -625,7 +696,7 @@ export default function GurbaniNavigator() {
       <audio ref={audioElRef} autoPlay playsInline />
 
       {currentPankti && (
-        <div className="row mt-8 p-4 text-center">
+        <div className="row mt-8 p-4 text-center text-black dark:text-white">
           <div
             className="col-12 shabad-text"
             style={{
@@ -640,6 +711,21 @@ export default function GurbaniNavigator() {
         </div>
       )}
 
+      {isMinimized && (
+        <div>
+        <audio ref={audioElRef} autoPlay playsInline />
+
+        <button
+          onClick={() => setIsMinimized(false)}
+          className="fixed bottom-4 right-4 z-50 flex h-12 w-12 items-center justify-center rounded-full border border-gray-300 bg-white dark:text-black shadow-lg hover:bg-gray-100"
+          title="Open Navigator"
+        >
+          <BookOpen className="h-5 w-5" />
+        </button>
+        </div>
+      )}
+
+      {!isMinimized && (
       <div
         className={`fixed bottom-2 left-16 right-2 lg:left-auto lg:right-2 lg:w-[40%] rounded-xl bg-gray-50 text-gray-800 transition-all duration-300 border flex flex-col overflow-hidden ${
           isMinimized ? "h-[52px]" : ""
@@ -648,16 +734,67 @@ export default function GurbaniNavigator() {
       >
         <div className="flex items-center justify-between border-b border-gray-300 px-4 py-2 flex-none">
           <div className="flex flex-row items-center">
-            <button onClick={toggleAudio}>
-              {!audioEnabled ? <MicOff /> : <Mic />}
-            </button>
+            <div
+              title={`Audio Stream: ${webrtcState}`}
+              className={`h-3 w-3 mr-2 rounded-full ${
+                webrtcState === "connected" ||
+                webrtcState === "completed" ||
+                webrtcState === "idle"
+                  ? "bg-green-600"
+                  : webrtcState === "connecting" ||
+                      webrtcState === "checking" ||
+                      webrtcState === "new"
+                    ? "bg-yellow-500 animate-pulse"
+                    : "bg-red-500"
+              }`}
+            />
 
-            <div className="ml-2 text-xs text-gray-500">
-              {webrtcState}
-            </div>
+            {!speechRunning ? (
+              <button
+                onClick={() => sendSpeechCommand("start")}
+                title="Start speech"
+                className="text-green-700 hover:text-green-900"
+              >
+                <PlayCircle />
+              </button>
+            ) : (
+              <>
+                {!speechPaused ? (
+                  <button
+                    onClick={() => sendSpeechCommand("pause")}
+                    title="Pause speech"
+                    className="text-yellow-700 hover:text-yellow-900"
+                  >
+                    <PauseCircle />
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => sendSpeechCommand("resume")}
+                    title="Resume speech"
+                    className="text-green-700 hover:text-green-900"
+                  >
+                    <PlayCircle />
+                  </button>
+                )}
+
+                <button
+                  onClick={() => sendSpeechCommand("stop")}
+                  title="Stop speech"
+                  className="text-red-700 hover:text-red-900"
+                >
+                  <Square />
+                </button>
+              </>
+            )}
           </div>
 
-          <span className="text-sm font-semibold tracking-wide">
+          <span
+            className="flex-1 overflow-hidden whitespace-nowrap text-ellipsis text-sm font-semibold tracking-wide"
+            style={{
+              direction: "rtl",
+              textAlign: "left",
+            }}
+          >
             {getLatestFinal(token.final_token + token.partial_token)}
           </span>
 
@@ -787,7 +924,7 @@ export default function GurbaniNavigator() {
 
             <div className="flex items-center border-t border-gray-300 flex-none">
               <button
-                className={`flex flex-col items-center text-xs text-gray-600 px-4 py-2 hover:text-black ${
+                className={`flex flex-col items-center text-xs text-gray-600 px-4 py-3 hover:text-black ${
                   page === "search" ? " bg-gray-300 text-gray-800" : ""
                 }`}
                 onClick={() => syncPage("search")}
@@ -796,7 +933,7 @@ export default function GurbaniNavigator() {
               </button>
 
               <button
-                className={`flex flex-col items-center text-xs text-gray-600 px-4 py-2 hover:text-black ${
+                className={`flex flex-col items-center text-xs text-gray-600 px-4 py-3 hover:text-black ${
                   page === "shabad" ? " bg-gray-300 text-gray-800" : ""
                 }`}
                 onClick={() => syncPage("shabad")}
@@ -805,7 +942,7 @@ export default function GurbaniNavigator() {
               </button>
 
               <button
-                className={`flex flex-col items-center text-xs text-gray-600 px-4 py-2 hover:text-black ${
+                className={`flex flex-col items-center text-xs text-gray-600 px-4 py-3 hover:text-black ${
                   page === "settings" ? " bg-gray-300 text-gray-800" : ""
                 }`}
                 onClick={() => syncPage("settings")}
@@ -816,6 +953,7 @@ export default function GurbaniNavigator() {
           </>
         )}
       </div>
+      )}
     </AppLayout>
   );
 }
